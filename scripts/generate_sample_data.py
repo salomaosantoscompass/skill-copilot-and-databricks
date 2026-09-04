@@ -172,12 +172,12 @@ if __name__ == "__main__":
     write_csv("orders.csv", generate_orders())
     write_csv("customers.csv", generate_customers())
     print("\nConcluído! Faça upload dos arquivos para o Volume:")
-    print("  dbfs:/Volumes/workspace/training/raw_files/orders.csv")
-    print("  dbfs:/Volumes/workspace/training/raw_files/customers.csv")
+    print("  dbfs:/Volumes/workspace/training_sql_serverless/raw_files/orders.csv")
+    print("  dbfs:/Volumes/workspace/training_sql_serverless/raw_files/customers.csv")
     print("\nOu use o comando da CLI Databricks:")
     print(
-        "  databricks fs cp data/raw/orders.csv dbfs:/Volumes/workspace/training/raw_files/orders.csv"
+        '  databricks fs cp "data/raw/orders.csv" "dbfs:/Volumes/workspace/training_sql_serverless/raw_files/orders.csv"'
     )
     print(
-        "  databricks fs cp data/raw/customers.csv dbfs:/Volumes/workspace/training/raw_files/customers.csv"
+        '  databricks fs cp "data/raw/customers.csv" "dbfs:/Volumes/workspace/training_sql_serverless/raw_files/customers.csv"'
     )
