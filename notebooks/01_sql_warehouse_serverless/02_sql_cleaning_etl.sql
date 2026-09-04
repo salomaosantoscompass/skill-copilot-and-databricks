@@ -7,6 +7,8 @@
 
 -- COMMAND ----------
 
+USE CATALOG workspace;
+
 USE training_sql_serverless;
 
 -- COMMAND ----------
@@ -57,6 +59,7 @@ SELECT
   unit_price,
   order_date,
   region,
+  status,
   ROUND(quantity * unit_price, 2) AS total_amount
 FROM orders_dedup
 WHERE rn = 1;
@@ -96,6 +99,7 @@ SELECT
   o.unit_price,
   o.order_date,
   o.region,
+  o.status,
   o.total_amount,
   c.customer_name,
   c.city AS customer_city,
@@ -105,4 +109,82 @@ SELECT
 FROM silver_orders_clean o
 LEFT JOIN silver_customers_clean c
   ON o.customer_id = c.customer_id;
+
+-- COMMAND ----------
+
+-- MAGIC %md
+-- MAGIC ## Validações da camada Silver
+
+-- COMMAND ----------
+
+-- 1) Pedidos sem cliente após o LEFT JOIN e percentual aceitável
+SELECT
+  COUNT(*) AS total_orders,
+  SUM(CASE WHEN customer_name IS NULL THEN 1 ELSE 0 END)
+    AS orders_without_customer,
+  ROUND(
+    100.0 * SUM(CASE WHEN customer_name IS NULL THEN 1 ELSE 0 END) / COUNT(*),
+    2
+  ) AS orders_without_customer_percentage,
+  CASE
+    WHEN 100.0 * SUM(CASE WHEN customer_name IS NULL THEN 1 ELSE 0 END) / COUNT(*) < 2
+    THEN 'PASS'
+    ELSE 'FAIL'
+  END AS threshold_under_2_percent
+FROM silver_orders_enriched;
+
+-- COMMAND ----------
+
+-- 2) Integridade do cálculo de valor total
+SELECT
+  COUNT(*) AS total_orders,
+  SUM(
+    CASE
+      WHEN total_amount != ROUND(quantity * unit_price, 2) THEN 1
+      ELSE 0
+    END
+  ) AS inconsistent_total_amount_count
+FROM silver_orders_enriched;
+
+-- COMMAND ----------
+
+-- 3) Regras de domínio preservadas na tabela enriquecida
+SELECT
+  COUNT(*) AS total_orders,
+  SUM(CASE WHEN quantity NOT BETWEEN 1 AND 100 THEN 1 ELSE 0 END)
+    AS invalid_quantity_count,
+  SUM(CASE WHEN unit_price NOT BETWEEN 0.01 AND 50000 THEN 1 ELSE 0 END)
+    AS invalid_unit_price_count,
+  SUM(CASE WHEN status != 'completed' THEN 1 ELSE 0 END)
+    AS invalid_status_count
+FROM silver_orders_enriched;
+
+-- COMMAND ----------
+
+-- 4) Unicidade de pedido após a deduplicação
+SELECT
+  COUNT(*) AS duplicated_order_id_count
+FROM (
+  SELECT order_id
+  FROM silver_orders_clean
+  GROUP BY order_id
+  HAVING COUNT(*) > 1
+);
+
+-- COMMAND ----------
+
+-- 5) Qualidade dos dados cadastrais de cliente no enriquecimento
+SELECT
+  COUNT(*) AS total_orders,
+  SUM(CASE WHEN customer_name IS NULL OR trim(customer_name) = '' THEN 1 ELSE 0 END)
+    AS missing_customer_name_count,
+  SUM(CASE WHEN customer_city IS NULL OR trim(customer_city) = '' THEN 1 ELSE 0 END)
+    AS missing_customer_city_count,
+  SUM(CASE WHEN email IS NULL OR trim(email) = '' THEN 1 ELSE 0 END)
+    AS missing_email_count,
+  SUM(CASE WHEN is_valid_email IS NOT TRUE THEN 1 ELSE 0 END)
+    AS invalid_email_count,
+  SUM(CASE WHEN signup_date IS NULL THEN 1 ELSE 0 END)
+    AS missing_signup_date_count
+FROM silver_orders_enriched;
  
