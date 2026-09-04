@@ -8,7 +8,14 @@
  -- COMMAND ----------
 
 -- 1) Criar schema da trilha
+USE CATALOG workspace;
+
+-- COMMAND ----------
+
 CREATE SCHEMA IF NOT EXISTS training_sql_serverless;
+
+-- COMMAND ----------
+
 USE training_sql_serverless;
 
 -- COMMAND ----------
