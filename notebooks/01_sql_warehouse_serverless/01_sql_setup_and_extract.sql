@@ -66,4 +66,128 @@ FROM read_files(
   inferSchema => true
 );
 
+-- COMMAND ----------
+
+-- MAGIC %md
+-- MAGIC ## Validações da camada Bronze
+
+-- COMMAND ----------
+
+-- 1) Contagem de registros carregados
+SELECT 'bronze_orders_raw' AS table_name, COUNT(*) AS record_count
+FROM bronze_orders_raw
+UNION ALL
+SELECT 'bronze_customers_raw' AS table_name, COUNT(*) AS record_count
+FROM bronze_customers_raw;
+
+-- COMMAND ----------
+
+-- 2) Reconciliação entre arquivos de origem e tabelas Bronze
+WITH source_counts AS (
+  SELECT 'orders' AS dataset, COUNT(*) AS source_record_count
+  FROM read_files(
+    'dbfs:/Volumes/workspace/training_sql_serverless/raw_files/orders.csv',
+    format => 'csv',
+    header => true,
+    inferSchema => true
+  )
+  UNION ALL
+  SELECT 'customers' AS dataset, COUNT(*) AS source_record_count
+  FROM read_files(
+    'dbfs:/Volumes/workspace/training_sql_serverless/raw_files/customers.csv',
+    format => 'csv',
+    header => true,
+    inferSchema => true
+  )
+),
+bronze_counts AS (
+  SELECT 'orders' AS dataset, COUNT(*) AS bronze_record_count
+  FROM bronze_orders_raw
+  UNION ALL
+  SELECT 'customers' AS dataset, COUNT(*) AS bronze_record_count
+  FROM bronze_customers_raw
+)
+SELECT
+  source_counts.dataset,
+  source_counts.source_record_count,
+  bronze_counts.bronze_record_count,
+  source_counts.source_record_count - bronze_counts.bronze_record_count
+    AS record_count_difference
+FROM source_counts
+INNER JOIN bronze_counts
+  ON source_counts.dataset = bronze_counts.dataset;
+
+-- COMMAND ----------
+
+-- 3) Chaves obrigatórias e duplicidade nas tabelas Bronze
+SELECT 'orders_without_order_id' AS validation_name, COUNT(*) AS invalid_record_count
+FROM bronze_orders_raw
+WHERE order_id IS NULL OR trim(order_id) = ''
+UNION ALL
+SELECT 'orders_without_customer_id' AS validation_name, COUNT(*) AS invalid_record_count
+FROM bronze_orders_raw
+WHERE customer_id IS NULL OR trim(customer_id) = ''
+UNION ALL
+SELECT 'duplicate_order_ids' AS validation_name, COUNT(*) AS invalid_record_count
+FROM (
+  SELECT order_id
+  FROM bronze_orders_raw
+  GROUP BY order_id
+  HAVING COUNT(*) > 1
+)
+UNION ALL
+SELECT 'customers_without_customer_id' AS validation_name, COUNT(*) AS invalid_record_count
+FROM bronze_customers_raw
+WHERE customer_id IS NULL OR trim(customer_id) = ''
+UNION ALL
+SELECT 'duplicate_customer_ids' AS validation_name, COUNT(*) AS invalid_record_count
+FROM (
+  SELECT customer_id
+  FROM bronze_customers_raw
+  GROUP BY customer_id
+  HAVING COUNT(*) > 1
+);
+
+-- COMMAND ----------
+
+-- 4) Valores fora do domínio permitido de status
+SELECT
+  coalesce(status, '<NULL>') AS invalid_status,
+  COUNT(*) AS record_count
+FROM bronze_orders_raw
+WHERE status IS NULL
+   OR lower(trim(status)) NOT IN ('completed', 'cancelled', 'pending')
+GROUP BY coalesce(status, '<NULL>')
+ORDER BY record_count DESC;
+
+-- COMMAND ----------
+
+-- 5) Datas de pedidos nulas, inválidas ou futuras
+SELECT
+  COUNT(*) AS total_orders,
+  SUM(CASE WHEN order_date IS NULL THEN 1 ELSE 0 END) AS null_order_date_count,
+  SUM(
+    CASE
+      WHEN order_date IS NOT NULL
+       AND try_cast(order_date AS TIMESTAMP) IS NULL
+      THEN 1
+      ELSE 0
+    END
+  ) AS invalid_order_date_count,
+  SUM(
+    CASE
+      WHEN try_cast(order_date AS TIMESTAMP) > current_timestamp() THEN 1
+      ELSE 0
+    END
+  ) AS future_order_date_count
+FROM bronze_orders_raw;
+
+-- COMMAND ----------
+
+-- 6) Pedidos sem cliente correspondente na tabela Bronze de clientes
+SELECT COUNT(*) AS orders_without_matching_customer
+FROM bronze_orders_raw AS orders
+LEFT ANTI JOIN bronze_customers_raw AS customers
+  ON orders.customer_id = customers.customer_id;
+
 
